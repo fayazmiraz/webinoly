@@ -2,42 +2,61 @@
 
 # Webinoly Server Manager Plugin
 # Syntax: webinoly <option>
-# Options: -update, -server-update or -server-reset, -verify, -dbpass, -tools-port, -login-www-data, -nologin-www-data, -config-cache, -uninstall, -config-load, -info
+# Options: -update, -server-update or -server-reset, -verify, -dbpass, -tools-port, -login-www-data, -nologin-www-data, -config-cache, -uninstall, -config-load, -info, -domain-list-update, -clear-cache
 
 opt="$1"
-arg="$2"
+source /opt/webinoly/lib/webin
 
-source /opt/webinoly/lib/install
+# Extract value if exist
+if [[ $opt == "-tools-port="* || $opt == "-config-cache="* || $opt == "-clear-cache="* || $opt == "-server-update="* || $opt == "-server-reset="* ]]; then
+	value=$(echo "${opt}" | cut -d'=' -f 2 -s)
+	opt=$(echo "${opt}" | cut -d'=' -f 1 -s)
+fi
 
-if [ "$opt" == "-update" ]; then
-	app_install
-	app_purge
-	webinoly_version
+
+
+if [[ $opt == "-update" ]]; then
 	echo ""
+	sudo wget --timeout=15 -qrO weby https://qrok.es/wyupd && sudo bash weby 0
 	echo "${gre}Webinoly App has been updated successfully!${end}"
-elif [[ "$opt" == "-server-update" || "$opt" == "-server-reset" ]]; then
+
+	
+elif [[ $opt == "-server-update" || $opt == "-server-reset" ]]; then
+	if [[ -z $value ]]; then
+		value="all"
+	elif [[ -n $value && $value != "all" && $value != "nginx" && $value != "php" ]]; then
+		echo "${red}Please, enter a valid option to update your server configuration!${end}"
+		exit 1
+	fi
 	
 	# Regenerate NGINX conf files
-	if [[ $(conf_read nginx-optim) == "true" ]]; then
+	if [[ $(conf_read nginx-optim) == "true" && ( $value == "nginx" || $value = "all" ) ]]; then
 		sudo rm -rf /etc/nginx/common
 		sudo rm -rf /etc/nginx/conf.d/*
-		linux_purge
-		nginx_optim
+		linux_purge > /dev/null 2>&1 &
+		nginx_optim > /dev/null 2>&1 &
+		echo "${gre}Nginx has been updated successfully!${end}"
+	elif [[ $(conf_read nginx-optim) != "true" && ( $value == "nginx" || $value = "all" ) ]]; then
+		echo "${red}Seems like Nginx is not installed in your server!${end}"
 	fi
 	
 	# Regenerate PHP conf files
-	if [[ $(conf_read php-optim) == "true" ]]; then
+	if [[ $(conf_read php-optim) == "true" && ( $value == "php" || $value = "all" ) ]]; then
 		sudo cat /opt/webinoly/templates/source/php.ini > /etc/php/$(conf_read php-ver)/fpm/php.ini
 		sudo cat /opt/webinoly/templates/source/www.conf > /etc/php/$(conf_read php-ver)/fpm/pool.d/www.conf
 		sudo rm /etc/php/$(conf_read php-ver)/fpm/pool.d/debug.conf
 		php_optim
+		echo "${gre}PHP has been updated successfully!${end}"
+	elif [[ $(conf_read php-optim) != "true" && ( $value == "php" || $value = "all" ) ]]; then
+		echo "${red}Seems like PHP is not installed in your server!${end}"
 	fi
 	
-	echo ""
-	echo "${gre}Webinoly Server has been updated successfully!${end}"
-elif [ "$opt" == "-verify" ]; then
+	
+elif [[ $opt == "-verify" ]]; then
 	webinoly_verify
-elif [ "$opt" == "-dbpass" ]; then
+	
+	
+elif [[ $opt == "-dbpass" ]]; then
 	if [[ -n $(conf_read mysql-root) || -n $(conf_read mysql-admin) ]]; then
 		echo "${gre}"
 		echo "  root: $( echo $(conf_read mysql-root) | openssl enc -d -a -salt )"
@@ -48,25 +67,22 @@ elif [ "$opt" == "-dbpass" ]; then
 		echo "DB Passwords not found!"
 		echo "${end}"
 	fi
-elif [ "$opt" == "-tools-port" ]; then
-	if [[ $(conf_read nginx-tool) == "true" && $(conf_read nginx) == "true" ]]; then
-		oldport="$(conf_read tools-port)"
-		tools_port $arg
-		newport="$(conf_read tools-port)"
-		if [[ $oldport != $newport ]]; then
-			sudo mv /var/www/$oldport /var/www/$newport
-			sudo mv /etc/nginx/sites-available/$oldport /etc/nginx/sites-available/$newport
-			sudo rm /etc/nginx/sites-enabled/$oldport
-			sudo ln -s /etc/nginx/sites-available/$newport /etc/nginx/sites-enabled/$newport
-			sudo sed -i "s/${oldport}/${newport}/g"  /etc/nginx/sites-available/$newport
-			sudo service nginx reload
-		fi
-	else
-		echo "${red}"
-		echo "Nginx Tools not found in your server!"
-		echo "${end}"
+	
+	
+elif [[ $opt == "-tools-port" ]]; then
+	oldport="$(conf_read tools-port)"
+	[[ -n $value ]] && tools_port $value || tools_port
+	newport="$(conf_read tools-port)"
+	if [[ $oldport != $newport && $(conf_read nginx-tool) == "true" && $(conf_read nginx) == "true" ]]; then
+		sudo mv /var/www/$oldport /var/www/$newport
+		sudo mv /etc/nginx/sites-available/$oldport /etc/nginx/sites-available/$newport
+		sudo rm /etc/nginx/sites-enabled/$oldport
+		sudo ln -s /etc/nginx/sites-available/$newport /etc/nginx/sites-enabled/$newport
+		sudo sed -i "s/${oldport}/${newport}/g"  /etc/nginx/sites-available/$newport
 	fi
-elif [ "$opt" == "-login-www-data" ]; then
+	
+	
+elif [[ $opt == "-login-www-data" ]]; then
 	if [[ $(conf_read nginx) != "true" ]]; then
 		echo "${red} Nginx not found! ${end}"
 		exit 1
@@ -104,7 +120,8 @@ elif [ "$opt" == "-login-www-data" ]; then
 	sudo service ssh restart
 	echo "${gre} SFTP access for www-data user has been successfuly enabled! ${end}"
 
-elif [ "$opt" == "-nologin-www-data" ]; then
+	
+elif [[ $opt == "-nologin-www-data" ]]; then
 	if [[ $(conf_read nginx) != "true" ]]; then
 		echo "${red} Nginx not found! ${end}"
 		exit 1
@@ -132,7 +149,8 @@ elif [ "$opt" == "-nologin-www-data" ]; then
 	sudo service ssh restart
 	echo "${gre} SFTP access for www-data user has been successfuly disabled! ${end}"
 
-elif [ "$opt" == "-config-cache" ]; then
+	
+elif [[ $opt == "-config-cache" ]]; then
 	if [[ $(conf_read nginx) != "true" ]]; then
 		echo "${red} Nginx not found! ${end}"
 		exit 1
@@ -147,7 +165,7 @@ elif [ "$opt" == "-config-cache" ]; then
 	othline=$( grep -F "fastcgi_cache_valid 301 302 307 404" /etc/nginx/conf.d/fastcgi.conf )
 	othval=$(echo "${othline//;}" | rev | cut -d' ' -f 1 | rev)
 	
-	if [[ -z $arg ]]; then
+	if [[ -z $value ]]; then
 		echo "${gre}"
 		echo "**********************************************************************"
 		echo "*************     Set FastCGI Cache new time values     **************"
@@ -166,9 +184,13 @@ elif [ "$opt" == "-config-cache" ]; then
 		read -p "   Set new value: " oth
 		oth=${oth:-$othval}
 	else
-		hit=$(echo "${arg}" | cut -d',' -f 1 )
-		ina=$(echo "${arg}" | cut -d',' -f 2 )
-		oth=$(echo "${arg}" | cut -d',' -f 3 )
+		custombegin=$(echo "${value}" | cut -c-1)
+		customlast=$(echo "${value}" | rev | cut -c-1)
+		cachedata=${value:1:-1}
+			
+		hit=$(echo "${cachedata}" | cut -d',' -f 1 )
+		ina=$(echo "${cachedata}" | cut -d',' -f 2 )
+		oth=$(echo "${cachedata}" | cut -d',' -f 3 )
 	fi
 	
 	if [[ "$hit" =~ ^[0-9]+[smhdwMy]$ && "$ina" =~ ^[0-9]+[smhdwMy]$ && "$oth" =~ ^[0-9]+[smhdwMy]$ ]]; then
@@ -185,7 +207,8 @@ elif [ "$opt" == "-config-cache" ]; then
 		echo "${end}"
 	fi
 
-elif [ "$opt" == "-uninstall" ]; then
+	
+elif [[ $opt == "-uninstall" ]]; then
 	echo "${red}"
 	echo " You are about to remove completely Webinoly App from your server!!"
 	echo "${blu}     Are you sure [y/N]? "
@@ -197,6 +220,12 @@ elif [ "$opt" == "-uninstall" ]; then
 			if [[ $(conf_read linux-optim) == "purged" ]]; then
 				swap_delete
 			fi
+			if [[ $(conf_read pre-packs) == true ]]; then
+				sudo apt-get -y -qq purge pwgen unzip > /dev/null
+				sudo apt-get -y -qq autoremove > /dev/null
+				conf_write pre-packs purged
+			fi
+			sudo mv /opt/webinoly/webinoly.conf $HOME/.webinoly-conf-restore_dont-remove
 			sudo rm -rf /opt/webinoly
 			sudo rm /usr/bin/webinoly
 			sudo rm /usr/bin/stack
@@ -214,17 +243,84 @@ elif [ "$opt" == "-uninstall" ]; then
 	  fi
 	done
 
-elif [ "$opt" == "-config-load" ]; then
+	
+elif [[ $opt == "-config-load" ]]; then
 	config_load
 
-elif [ "$opt" == "-info" ]; then
+	
+elif [[ $opt == "-info" ]]; then
 	system_info
 
+	
+elif [[ $opt == "-domain-list-update" ]]; then
+	echo "${blu}- Downloading!${end}"
+	sudo wget --timeout=15 -qrO /tmp/temp-public_suffix_list.dat https://publicsuffix.org/list/public_suffix_list.dat
+	if [[ -s /tmp/temp-public_suffix_list.dat ]]; then
+		echo "${blu}- Processing file!${end}"
+		sudo sed -i '/^\/\// d' /tmp/temp-public_suffix_list.dat
+		sudo sed -i '/^$/d' /tmp/temp-public_suffix_list.dat
+		sudo sed -i 's/[!]\+//g' /tmp/temp-public_suffix_list.dat
+		sudo sed -i 's/^\*\.\+//g' /tmp/temp-public_suffix_list.dat
+		sudo mv /tmp/temp-public_suffix_list.dat /opt/webinoly/lib/public_suffix_list.dat
+		echo "${gre}Domain list has been successfully updated!${end}"
+	else
+		echo "${red}[ERROR] Domain list not updated!${end}"
+	fi
+	
+	
+elif [[ $opt == "-clear-cache" ]]; then
+	[[ -z $value ]] && value="all"
+	if ! [[ $value =~ ^(redis|memcache|memcached|opcache|fastcgi|all)$ ]]; then
+		echo "${red}[ERROR] $value is not a valid option!${end}"
+		exit 1
+	fi
+	if [[ $value == "redis" || $value == "all" ]]; then
+		if [[ $(conf_read php-tool) == "true" ]]; then
+			sudo redis-cli flushall
+			echo "${gre}- Redis Cache has been successfully cleared!${end}"
+		else
+			echo "${red}[ERROR] We can not clear Redis Cache because PHP is not installed!${end}"
+		fi
+	fi
+	if [[ $value == "memcache" || $value == "memcached" || $value == "all" ]]; then
+		if [[ $(conf_read php-tool) == "true" ]]; then
+			memhost=$(grep ^-l /etc/memcached.conf | cut -f 2 -d ' ')
+			memport=$(grep ^-p /etc/memcached.conf | cut -f 2 -d ' ')
+			echo flush_all > /dev/tcp/$memhost/$memport
+			echo "${gre}- Memcached has been successfully cleared!${end}"
+		else
+			echo "${red}[ERROR] We can not clear Memcache because PHP is not installed!${end}"
+		fi
+	fi
+	if [[ $value == "opcache" || $value == "all" ]]; then
+		if [[ $(conf_read nginx-tool) == "true" && $(conf_read php-tool) == "true" ]]; then
+			port=$(conf_read tools-port)
+			if [[ ! -a /var/www/$port/htdocs/php/opcache/index.php ]]; then
+				sudo mkdir /var/www/$port/htdocs/php/opcache
+				sudo touch /var/www/$port/htdocs/php/opcache/index.php
+				echo '<?php opcache_reset(); echo "OK\n";' > /var/www/$port/htdocs/php/opcache/index.php
+				sudo chown -R www-data:www-data /var/www/$port/htdocs/php/opcache
+				sudo chmod 644 /var/www/$port/htdocs/php/opcache/index.php
+			fi
+			wget --spider --no-check-certificate --timeout=15 localhost:22222/php/opcache/  > /dev/null 2>&1 &
+			echo "${gre}- OpCache has been successfully cleared!${end}"
+		else
+			echo "${red}[ERROR] We can not clear OpCache because PHP and NGINX are not installed!${end}"
+		fi
+	fi
+	if [[ $value == "fastcgi" || $value == "all" ]]; then
+		if [[ $(conf_read nginx) == "true" ]]; then
+			sudo rm -Rf /var/run/nginx-cache/*
+			echo "${gre}- FastCgi Cache has been successfully cleared!${end}"
+		else	
+			echo "${red}[ERROR] We can not clear FastCGI Cache because NGINX is not installed!${end}"
+		fi
+	fi
+	
+	
 else
 	echo "${red}Please enter a valid option!${end}"
 fi
 
 
-if [[ $(conf_read nginx) == "true" ]]; then
-	sudo service nginx reload
-fi
+[[ $(conf_read nginx) == "true" ]] && sudo service nginx reload

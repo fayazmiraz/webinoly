@@ -2,90 +2,109 @@
 
 # Server Stack Manager
 # Syntax: stack <option> <arguments>
-# Options: -html, -nginx, -php, -lemp, -mysql, -pma, -info, -purge-server-all, -web-tools
+# Options: -html, -nginx, -php, -lemp, -mysql, -pma, -info, -purge-server-all, -web-tools, -php-ver
 # Arguments: -purge, -notools, -noptim
 
 source /opt/webinoly/lib/install
+source /opt/webinoly/lib/webin
 opt="$1"
 arg="$2"
 
+
 # Check if user entered arg before option and correct it.
-if [[ $opt == "-purge" || $opt == "-notools" ]]; then
+if [[ $opt == "-purge" || $opt == "-notools" || $opt == "-noptim" ]]; then
 	opt="$2"
 	arg="$1"
 fi
 
+# FORCE - Unattended Purge
+clear_force_flag() {
+	[[ $(conf_read force-flag) == "true" ]] && conf_delete force-flag
+}
+if [[ $arg == "-purge=force" || $opt == "-purge-server-all=force" || $opt == "-php=force" ]]; then
+	conf_write force-flag true
+	[[ $arg == "-purge=force" ]] && arg="-purge"
+	[[ $opt == "-purge-server-all=force" ]] && opt="-purge-server-all"
+	[[ $opt == "-php=force" ]] && opt="-php"
+	force="1"
+fi
+
+# Extract value if exist
+if [[ $opt == "-nginx="* || $opt == "-html="* || $opt == "-lemp="* || $opt == "-php="* || $opt == "-php-ver="* ]]; then
+	value=$(echo "${opt}" | cut -d'=' -f 2 -s)
+	opt=$(echo "${opt}" | cut -d'=' -f 1 -s)
+fi
+
+
+# LEMP without Optimization for testing purpose (just packages)!
 if [[ $arg == "-noptim" && $opt == "-lemp" ]]; then
 	if ! [[ $(conf_read nginx) == "true" || $(conf_read php) == "true" || $(conf_read mysql) == "true" ]]; then
 		nginx_install
 		php_install
 		mysql_install
 		echo ""
-		echo "${gre} LEMP without optimization has been installed!!! ${end}"
+		echo "${gre}LEMP without optimization has been installed!!! ${end}"
 		echo ""
 		messagend_install dbpass
 	else
 		echo "${red}[ERROR] Some packages are already installed!${end}"
 	fi
-	
 
 
 # Delete some stack
 elif [[ $arg == "-purge" && ( $opt == "-html" || $opt == "-nginx" ) ]]; then
 	if [[ $(conf_read nginx) != "true" ]]; then
-		echo "${red} Nginx is not installed, hence can not be deleted! ${end}"
-		exit 1
+		echo "${red}Nginx is not installed, hence can not be deleted! ${end}"
+		clear_force_flag
+		# Use "0" because any other number cause running commands twice when using "force" in -purge-server-all
+		exit 0
 	fi
 	
 	echo ""
 	echo "${red} ¡ C A U T I O N !  You are about to remove NGINX from your server!"
 	echo ""
-	if [ "$(conf_read delall)" != "true" ]; then
+	
+	if [[ $(conf_read force-flag) != "true" ]]; then
 		echo " ${blu} Are you sure [y/N]? ${end}"
 		while read -r -n 1 -s answer; do
 		  answer=${answer:-n}
-		  if [[ $answer = [YyNn] ]]; then
-			break
-		  fi
+		  [[ $answer = [YyNn] ]] && break
 		done
 	fi
 	
-	if [[ $answer == [Yy] || $(conf_read delall) == "true" ]]; then
-		echo ""
-		echo "${blu}Do you want to delete your sites data directory (/var/www) [Y/n]? ${end}"
-		while read -r -n 1 -s answer; do
-		  answer=${answer:-y}
-		  if [[ $answer = [YyNn] ]]; then
-			if [[ $answer == [Yy] ]]; then
-				if [[ $(conf_read mysql-tool) == "true" ]]; then
-					stack -pma -purge
-				fi
-				site -delete-all
-				sudo rm -rf /var/www/$(conf_read tools-port)
-				sudo rm -rf /var/www/html
-			fi
-			break
-		  fi
-		done
+	if [[ $answer == [Yy] || $(conf_read force-flag) == "true" ]]; then
+		if [[ $(conf_read force-flag) == "true" && $force == 1 ]]; then
+			answer="Y"
+		else
+			echo ""
+			echo "${blu}Do you want to delete your sites data directory (/var/www) [Y/n]? ${end}"
+			while read -r -n 1 -s answer; do
+			  answer=${answer:-y}
+			  [[ $answer = [YyNn] ]] && break
+			done
+		fi
+		if [[ $answer == [Yy] ]]; then
+			[[ $(conf_read mysql-tool) == "true" ]] && stack -pma -purge
+			site -delete-all
+			sudo rm -rf /var/www/$(conf_read tools-port)
+			sudo rm -rf /var/www/html
+		fi
 		
 		sudo service nginx stop
 		sudo apt-get -y purge nginx nginx-common
 		sudo apt-get -y purge letsencrypt python-boto duplicity duply
+		[[ $(conf_read nginx-ppa) == "mainline" ]] && echo | sudo add-apt-repository --remove 'ppa:nginx/development' || echo | sudo add-apt-repository --remove 'ppa:nginx/stable'
 		sudo apt-get -y autoremove
 		sudo rm $HOME/www
-		sudo rm $HOME/sites-available
-		
+		sudo rm $HOME/sites-available		
 		linux_purge
 		
-		if [[ $(conf_read php-tool) != "true" ]]; then
-			conf_write web-tool purged
-		fi
-		
+		[[ $(conf_read php-tool) != "true" ]] && conf_write web-tool purged		
 		conf_write nginx purged
 		conf_write nginx-optim purged
 		conf_write nginx-tool purged
 		echo ""
-		echo "${gre} Nginx has been deleted successfully! ${end}"
+		echo "${gre}Nginx has been deleted successfully! ${end}"
 		echo ""
 	else
 		echo ""
@@ -96,47 +115,52 @@ elif [[ $arg == "-purge" && ( $opt == "-html" || $opt == "-nginx" ) ]]; then
 	
 elif [[ $arg == "-purge" && $opt == "-php" ]]; then
 	if [[ $(conf_read php) != "true" ]]; then
-		echo "${red} PHP is not installed, hence can not be deleted! ${end}"
-		exit 1
+		echo "${red}PHP is not installed, hence can not be deleted! ${end}"
+		clear_force_flag
+		exit 0
 	fi
-	
+
 	echo ""
 	echo "${red} ¡ C A U T I O N !  You are about to remove PHP from your server!"
 	echo " This action will also remove PhpMyAdmin if its installed because depends on PHP. ${end}"
 	echo ""
-	if [ "$(conf_read delall)" != "true" ]; then
+
+	if [[ $(conf_read force-flag) != "true" ]]; then
 		echo " ${blu} Are you sure [y/N]? ${end}"
 		while read -r -n 1 -s answer; do
-		  answer=${answer:-n}
-		  if [[ $answer = [YyNn] ]]; then
-			break
-		  fi
+			answer=${answer:-n}
+			[[ $answer = [YyNn] ]] && break
 		done
 	fi
 
-	if [[ $answer == [Yy] || $(conf_read delall) == "true" ]]; then
-		if [[ $(conf_read mysql-tool) == "true" ]]; then
-			stack -pma -purge
-		fi
+	if [[ $answer == [Yy] || $(conf_read force-flag) == "true" ]]; then
+		[[ $(conf_read mysql-tool) == "true" ]] && stack -pma -purge
 		sudo service php*-fpm stop
-		sudo apt-get -y purge php*-fpm php*-curl php*-gd php*-imap php*-mcrypt php*-readline php*-common php*-recode php*-mysql php*-cli php*-mbstring php*-bcmath php*-mysql php*-opcache php*-zip php*-xml php*-soap php-memcached php-imagick php-memcache memcached graphviz php-pear php-xdebug php-msgpack unzip
+		sudo apt-get -y purge php*-fpm php*-curl php*-gd php*-imap php*-mcrypt php*-readline php*-common php*-recode php*-mysql php*-cli php*-mbstring php*-bcmath php*-mysql php*-opcache php*-zip php*-xml php*-soap php-imagick graphviz php-pear php-xdebug php-msgpack
+		sudo apt-get -y purge php-memcached php-memcache memcached
 		sudo apt-get -y purge redis-server php-redis postfix
-		sudo add-apt-repository --remove 'ppa:ondrej/php'
+		echo | sudo add-apt-repository --remove 'ppa:ondrej/php'
+		echo | sudo add-apt-repository --remove 'ppa:chris-lea/redis-server'
 		sudo apt-get -y autoremove
 		sudo rm -rf /etc/php
 		sudo rm /opt/webinoly/templates/source/*
+
 		conf_write php purged
 		conf_write php-optim purged
+		[[ $(conf_read php-v7.2) == "true" ]] && conf_write php-v7.2 purged
+		[[ $(conf_read php-v7.1) == "true" ]] && conf_write php-v7.1 purged
+		[[ $(conf_read php-v7.0) == "true" ]] && conf_write php-v7.0 purged
+		[[ $(conf_read php-v5.6) == "true" ]] && conf_write php-v5.6 purged
+
 		if [[ $(conf_read php-tool) == "true" ]]; then
 			rm -rf /var/www/$(conf_read tools-port)/htdocs/fpm
 			rm -rf /var/www/$(conf_read tools-port)/htdocs/php
 			conf_write php-tool purged
 		fi
-		if [[ $(conf_read nginx-tool) != "true" ]]; then
-			conf_write web-tool purged
-		fi
+
+		[[ $(conf_read nginx-tool) != "true" ]] && conf_write web-tool purged
 		echo ""
-		echo "${gre} PHP has been deleted successfully! ${end}"
+		echo "${gre}PHP has been deleted successfully! ${end}"
 		echo ""
 	else
 		echo ""
@@ -144,37 +168,52 @@ elif [[ $arg == "-purge" && $opt == "-php" ]]; then
 		echo ""
 	fi
 	echo ""
+		
 	
 elif [[ $arg == "-purge" && $opt == "-mysql" ]]; then
 	if [[ $(conf_read mysql) != "true" ]]; then
-		echo "${red} MySQL is not installed, hence can not be deleted! ${end}"
-		exit 1
+		echo "${red}MySQL is not installed, hence can not be deleted! ${end}"
+		clear_force_flag
+		exit 0
 	fi
 	
 	echo ""
 	echo "${red} ¡ C A U T I O N !  You are about to remove MySQL from your server! ${end}"
 	echo ""
-	if [ "$(conf_read delall)" != "true" ]; then
+
+	if [[ $(conf_read force-flag) != "true" ]]; then
 		echo " ${blu} Are you sure [y/N]? ${end}"
 		while read -r -n 1 -s answer; do
 		  answer=${answer:-n}
-		  if [[ $answer = [YyNn] ]]; then
-			break
-		  fi
+		  [[ $answer = [YyNn] ]] && break
 		done
 	fi
 	
-	if [[ $answer == [Yy] || $(conf_read delall) == "true" ]]; then
+	if [[ $answer == [Yy] || $(conf_read force-flag) == "true" ]]; then
 		if [[ $(conf_read mysql-tool) == "true" ]]; then
 			conf_write delautopma true
 			stack -pma -purge
 			conf_delete delautopma
 		fi	
 		sudo service mysql stop
-		sudo apt-get -y purge mariadb-server mariadb-common mysql-common debconf-utils
+		echo "mariadb-server-10.2 mariadb-server-10.2/postrm_remove_databases boolean true" | debconf-set-selections
+		sudo apt-get -y purge mariadb-server mariadb-common mysql-common
 		sudo apt-get -y purge mariadb-client
+		sudo apt-get -y purge debconf-utils
 		sudo apt-get -y autoremove
-		sudo add-apt-repository --remove 'deb [arch=amd64,i386,ppc64el] http://mirrors.syringanetworks.net/mariadb/repo/10.2/ubuntu xenial main'
+		
+		os_name=$(check_osname)
+		sudo add-apt-repository --remove "deb [arch=amd64,i386,ppc64el] http://mirrors.syringanetworks.net/mariadb/repo/10.2/ubuntu ${os_name} main"
+		# Cases with MariaDB v10.2 support
+		case "$os_name" in
+			"trusty")
+				sudo apt-key del 0xcbcb082a1bb943db
+			;;
+			"xenial"|"zesty"|"artful"|"bionic")
+				sudo apt-key del 0xF1656F24C74CD1D8
+			;;
+		esac
+		
 		sudo rm -rf /etc/mysql
 		sudo rm -rf /var/lib/mysql
 		conf_delete mysql-root
@@ -182,7 +221,7 @@ elif [[ $arg == "-purge" && $opt == "-mysql" ]]; then
 		conf_write mysql-client purged
 		conf_write mysql purged
 		echo ""
-		echo "${gre} MySQL has been deleted successfully! ${end}"
+		echo "${gre}MySQL has been deleted successfully! ${end}"
 		echo ""
 	else
 		echo ""
@@ -194,13 +233,15 @@ elif [[ $arg == "-purge" && $opt == "-mysql" ]]; then
 elif [[ $arg == "-purge" && $opt == "-pma" ]]; then
 	if [[ $(conf_read mysql-tool) != "true" ]]; then
 		echo "${red} PhpMyAdmin is not installed, hence can not be deleted! ${end}"
-		exit 1
+		clear_force_flag
+		exit 0
 	fi
 	
 	echo ""
 	echo "${red} ¡ C A U T I O N !  You are about to remove PhpMyAdmin from your server! ${end}"
 	echo ""
-	if [[ "$(conf_read delall)" != "true" && "$(conf_read delautopma)" != "true" ]]; then
+
+	if [[ $(conf_read force-flag) != "true" && $(conf_read delautopma) != "true" ]]; then
 		echo " ${blu} Are you sure [y/N]? ${end} "
 		while read -r -n 1 -s answer; do
 		  answer=${answer:-n}
@@ -210,7 +251,7 @@ elif [[ $arg == "-purge" && $opt == "-pma" ]]; then
 		done
 	fi
 
-	if [[ $answer == [Yy] || $(conf_read delall) == "true" || $(conf_read delautopma) == "true" ]]; then
+	if [[ $answer == [Yy] || $(conf_read force-flag) == "true" || $(conf_read delautopma) == "true" ]]; then
 		echo "phpmyadmin      phpmyadmin/dbconfig-remove      boolean true" | debconf-set-selections
 		echo "phpmyadmin      phpmyadmin/purge        boolean true" | debconf-set-selections
 		sudo apt-get -y purge phpmyadmin
@@ -218,7 +259,7 @@ elif [[ $arg == "-purge" && $opt == "-pma" ]]; then
 		sudo rm -rf /var/www/$(conf_read tools-port)/htdocs/pma
 		conf_write mysql-tool purged
 		echo ""
-		echo "${gre} PhpMyAdmin has been deleted successfully! ${end}"
+		echo "${gre}PhpMyAdmin has been deleted successfully! ${end}"
 		echo ""
 	else
 		echo ""
@@ -229,29 +270,30 @@ elif [[ $arg == "-purge" && $opt == "-pma" ]]; then
 	
 elif [[ $arg == "-purge" && $opt == "-web-tools" ]]; then
 	if [[ $(conf_read web-tool) != "true" ]]; then
-		echo "${red} Web Tools (Postfix, Redis, Duplicity and Letsencrypt) are not installed, hence can not be deleted! ${end}"
-		exit 1
+		echo "${red} Web Tools (Postfix, Redis, Memcached, Duplicity and Letsencrypt) are not installed, hence can not be deleted! ${end}"
+		clear_force_flag
+		exit 0
 	fi
 	
 	echo ""
-	echo "${red} ¡ C A U T I O N !  You are about to remove all your Web Tools (Postfix, Redis, Duplicity and Letsencrypt) from your server! ${end}"
+	echo "${red} ¡ C A U T I O N !  You are about to remove all your Web Tools (Postfix, Redis, Memcached, Duplicity and Letsencrypt) from your server! ${end}"
 	echo ""
-	if [ "$(conf_read delall)" != "true" ]; then
+
+	if [[ $(conf_read force-flag) != "true" ]]; then
 		echo " ${blu} Are you sure [y/N]? ${end} "
 		while read -r -n 1 -s answer; do
 		  answer=${answer:-n}
-		  if [[ $answer = [YyNn] ]]; then
-			break
-		  fi
+		  [[ $answer = [YyNn] ]] && break
 		done
 	fi
 	
-	if [[ $answer == [Yy] || $(conf_read delall) == "true" ]]; then
-		sudo apt-get -y purge redis-server php-redis postfix letsencrypt python-boto duplicity duply
+	if [[ $answer == [Yy] || $(conf_read force-flag) == "true" ]]; then
+		[[ $(conf_read nginx-tool) == "true" ]] && sudo apt-get -y purge letsencrypt python-boto duplicity duply
+		[[ $(conf_read php-tool) == "true" ]] && sudo apt-get -y purge redis-server php-redis postfix php-memcached php-memcache memcached
 		sudo apt-get -y autoremove
 		conf_write web-tool purged
 		echo ""
-		echo "${gre} Web Tools have been deleted successfully! ${end}"
+		echo "${gre}Web Tools have been deleted successfully! ${end}"
 		echo ""
 	else
 		echo ""
@@ -271,25 +313,21 @@ elif [[ $arg != "-purge" && $arg != "-notools" && -n "$arg" ]]; then
 	echo ""
 
 
-
 # Install some stack
 elif [[ $opt == "-html" || $opt == "-nginx" ]]; then
 	if [[ $(conf_read nginx) != "true" ]]; then
 		nginx_install
 		nginx_optim
-		if [[ $arg != "-notools" ]]; then
-			nginx_tool
-		fi
-		
+		[[ $arg != "-notools" ]] && nginx_tool		
 		echo ""
-		echo "${gre} Nginx has been installed successfully! ${end}"
+		echo "${gre}Nginx has been successfully Optimized by Webinoly! ${end}"
 		echo ""
 	else
 		echo "${red}Nginx is already installed!${end}"
 		if [[ $(conf_read nginx-optim) != "true" ]]; then
 			nginx_optim
 			echo "${gre}"
-			echo "NGINX has been optimized by Webinoly!"
+			echo "NGINX has been successfully Optimized by Webinoly!"
 			echo "${end}"
 		fi
 		if [[ $(conf_read nginx-tool) != "true" && $arg != "-notools" ]]; then
@@ -301,35 +339,31 @@ elif [[ $opt == "-html" || $opt == "-nginx" ]]; then
 	fi
 	
 elif [[ $opt == "-php" ]]; then
-	if [[ $(conf_read php) != "true" ]]; then
-		if [[ $(conf_read nginx) != "true" ]]; then
+	if [[ $(conf_read php) != "true" || ( -n $value && $(conf_read php-v${value}) != "true" ) ]]; then
+		if [[ $(conf_read nginx) != "true" && $(conf_read force-flag) != "true" ]]; then
 			echo ""
 			echo "${blu}Nginx is not installed, do you want to install it too [Y/n]?${end} "
 			while read -r -n 1 -s answer; do
 			  answer=${answer:-y}
-			  if [[ $answer = [YyNn] ]]; then
-				break
-			  fi
+			  [[ $answer = [YyNn] ]] && break
 			done
-			if [[ $answer != [Nn] ]]; then
-				stack -nginx $arg
-			fi
+			[[ $answer != [Nn] ]] && stack -nginx $arg
 		fi
 		
-		php_install
-		php_optim
-		if [[ $arg != "-notools" ]]; then
-			php_tool
-		fi
-			echo ""
-		echo "${gre} PHP has been installed successfully! ${end}"
+		[[ -n $value ]] && php_install $value || php_install
+		[[ -n $value && $(conf_read php-v${value}) == "true" ]] && php_optim $value
+		[[ -z $value ]] && php_optim
+		def=$(conf_read php-ver)
+		[[ $arg != "-notools" && $(conf_read php-tool) != "true" ]] && php_tool
+		echo ""
+		echo "${gre}PHP has been successfully Optimized by Webinoly! ${end}"
 		echo ""
 	else
 		echo "${red}PHP is already installed!${end}"
 		if [[ $(conf_read php-optim) != "true" ]]; then
 			php_optim
 			echo "${gre}"
-			echo "PHP has been optimized by Webinoly!"
+			echo "PHP has been successfully Optimized by Webinoly!"
 			echo "${end}"
 		fi
 		if [[ $(conf_read php-tool) != "true" && $arg != "-notools" ]]; then
@@ -343,12 +377,7 @@ elif [[ $opt == "-php" ]]; then
 elif [[ $opt == "-mysql" ]]; then
 	if [[ $(conf_read mysql) != "true" ]]; then
 		mysql_install
-		if [[ $arg != "-notools" ]]; then
-			stack -pma
-		fi
-		echo ""
-		echo "${gre} MySQL (MariaDB) has been installed successfully! ${end}"
-		echo ""
+		[[ $arg != "-notools" ]] && stack -pma
 		messagend_install dbpass
 	else
 		echo "${red}MySQL is already installed!${end}"
@@ -363,26 +392,51 @@ elif [[ $opt == "-mysql" ]]; then
 elif [[ $opt == "-pma" ]]; then
 	if [[ $(conf_read mysql) != "true" || $(conf_read php) != "true" || $(conf_read nginx) != "true" || $(conf_read nginx-tool) != "true" ]]; then
 		echo "${red} You need to have MySQL, PHP and NGINX installed before you can install PhpMyAdmin! ${end}"
-		exit 1
+		clear_force_flag
+		exit 0
 	fi
-	if [[ $(conf_read mysql-tool) != "true" ]]; then
-		mysql_tool
-		echo ""
-		echo "${gre} PhpMyAdmin has been installed successfully! ${end}"
-		echo ""
-	else
-		echo "${red}PhpMyAdmin is already installed!${end}"
-	fi
+	[[ $(conf_read mysql-tool) != "true" ]] && mysql_tool || echo "${red}PhpMyAdmin is already installed!${end}"
 
 elif [[ $opt == "-lemp" ]]; then
-	stack -nginx $arg
+	[[ $value =~ ^(stable|mainline)$ ]] && stack -nginx=$value $arg || stack -nginx $arg
 	stack -php $arg
 	stack -mysql $arg
 	echo ""
-	echo "${gre} Nginx, PHP, MySQL (MariaDB) and other useful tools have been installed successfully! ${end}"
+	echo "${gre}Nginx, PHP, MySQL (MariaDB) and some other useful tools have been installed successfully! ${end}"
 	echo ""
 	
+elif [[ $opt == "-php-ver" ]]; then
+	if [[ $(conf_read multi-php) == "true" ]]; then
+		echo "${red}This command is disabled because Multi-PHP is enabled!${end}"
+		exit 0
+	fi
+	
+	if [[ -n $value && ($value == "7.2" || $value == "7.1" || $value == "7.0" || $value == "5.6") ]]; then
+		echo "${blu}New PHP version: '$value' ${end}"
+		if [[ $(conf_read php) == "true" && $(conf_read php-ver) == $value ]]; then
+			echo "${red}PHP $value is currently installed!${end}"
+		elif [[ $(conf_read php) == "true" && $(conf_read mysql-tool) == "true" ]]; then
+			sudo stack -php -purge=force
+			conf_write php-ver $value
+			# force flag prevent to be questioned (Unattended) when nginx is not installed.
+			conf_write force-flag true
+			sudo stack -php
+			sudo stack -pma
+		elif [[ $(conf_read php) == "true" && $(conf_read mysql-tool) != "true" ]]; then
+			sudo stack -php -purge=force
+			conf_write php-ver $value
+			conf_write force-flag true
+			sudo stack -php
+		elif [[ $(conf_read php) != "true" && $(conf_read mysql-tool) != "true" ]]; then
+			conf_write php-ver $value
+			echo "${gre}PHP is not already installed but new version will be installed next time! ${end}"
+		fi
+		clear_force_flag
+	else
+		echo "${red}Please, enter a valid PHP version!${end}"
+	fi
 
+	
 # Info & Purge-Server-All
 elif [[ $opt == "-info" ]]; then
 	system_info
@@ -393,25 +447,27 @@ elif [[ $opt == "-purge-server-all" ]]; then
 	echo ""
 	echo " If you want to remove your sites data use the webinoly command: 'sudo webinoly -delete-all'"
 	echo ""
-	echo " ${blu} Are you sure [y/N]? ${end}"
-	while read -r -n 1 -s answer; do
-	  answer=${answer:-n}
-	  if [[ $answer = [YyNn] ]]; then
-		break
-	  fi
-	done
+	if [[ $(conf_read force-flag) != "true" && $force != 1 ]]; then
+		echo " ${blu} Are you sure [y/N]? ${end}"
+		while read -r -n 1 -s answer; do
+		  answer=${answer:-n}
+		  [[ $answer = [YyNn] ]] && break
+		done
+	else
+		answer="Y"
+	fi
 
 	if [[ $answer == [Yy] ]]; then
-		conf_write delall true
-		stack -mysql -purge
-		stack -php -purge
-		stack -nginx -purge
-		conf_delete delall
-	
+		conf_write force-flag true
+		[[ $force == 1 ]] && stack -nginx -purge=force || stack -nginx -purge
+		[[ $force == 1 ]] && stack -mysql -purge=force || stack -mysql -purge
+		[[ $force == 1 ]] && stack -php -purge=force || stack -php -purge
+		clear_force_flag
+		
 		echo "${gre}"
 		echo "****************************************************************************"
-		echo "***     Webinoly Stack have been completely removed from your server    ***"
-		echo "****         We are sad because you decided to remove Webinoly!!       ****"
+		echo "***     Webinoly Stack have been completely removed from your server     ***"
+		echo "****         We are sad because you decided to remove Webinoly!!        ****"
 		echo "****************************************************************************"
 		echo "${end}"
 	else
@@ -421,4 +477,11 @@ elif [[ $opt == "-purge-server-all" ]]; then
 	fi
 else
 	echo "${red} $opt is not a valid option! ${end}"
+fi
+
+
+# Clear FORCE flag in config file
+if [[ $force == 1 ]]; then
+	clear_force_flag
+	force="0"
 fi

@@ -6,47 +6,153 @@
 source /opt/webinoly/lib/general
 
 
-nginx_helper_plugin() {
-	# Download WP (latest version)
-	sudo curl -o /var/www/$domain/htdocs/nginx-helper-plugin.zip https://downloads.wordpress.org/plugin/nginx-helper.latest-stable.zip 2>/dev/null
-	sudo unzip -qq /var/www/$domain/htdocs/nginx-helper-plugin.zip -d /var/www/$domain/htdocs/wp-content/plugins/
-	sudo rm /var/www/$domain/htdocs/nginx-helper-plugin.zip
-	echo ""
-	echo "${gre} Nginx Helper Plugin has been installed!"
-	echo " Please, activate this plugin for a better experience with FastCgi Cache."
-	echo "${blu}It is important to configure the Purge Method of the plugin as “Delete local server cache file”, the support for the purge/url method has been disabled because it is considered a security risk. Similarly, the “Caching Method” should be set to “Nginx FastCgi Cache”. ${end}"
-	echo ""
+wp_cache_plugins() {
+	if [[ ! -d /var/www/$domain/htdocs/wp-content/plugins/nginx-helper ]]; then
+		# Download Nginx Helper Plugin
+		sudo wget --timeout=15 -qrO /var/www/$domain/htdocs/nginx-helper-plugin.zip https://downloads.wordpress.org/plugin/nginx-helper.latest-stable.zip
+		sudo unzip -qq /var/www/$domain/htdocs/nginx-helper-plugin.zip -d /var/www/$domain/htdocs/wp-content/plugins/
+		sudo rm /var/www/$domain/htdocs/nginx-helper-plugin.zip
+		echo ""
+		echo "${gre} Nginx Helper Plugin has been installed!"
+		echo " Please, activate this plugin for a better experience with FastCgi Cache."
+		echo "${blu} ** IMPORTANT - Plugin Settings **"
+		echo "- The “Caching Method” should be set to “Nginx FastCgi Cache”."
+		echo "- Support for purge/url method has been disabled because it is considered a security risk."
+		echo "- The Purge Method should be set to “Delete local server cache file” "
+		echo "${end}"
+	else
+		echo "${red}Nginx Helper Plugin is already installed!${end}"
+	fi
+
+	if [[ ! -d /var/www/$domain/htdocs/wp-content/plugins/redis-cache ]]; then
+		# Download Redis Object Cache Plugin
+		sudo wget --timeout=15 -qrO /var/www/$domain/htdocs/redis-cache-plugin.zip https://downloads.wordpress.org/plugin/redis-cache.latest-stable.zip
+		sudo unzip -qq /var/www/$domain/htdocs/redis-cache-plugin.zip -d /var/www/$domain/htdocs/wp-content/plugins/
+		sudo rm /var/www/$domain/htdocs/redis-cache-plugin.zip
+		echo ""
+		echo "${gre} Redis Object Cache Plugin has been installed!"
+		echo " Please, activate this plugin for a better experience with WordPress Object Cache."
+		echo "${blu} ** IMPORTANT - Plugin Settings **"
+		echo "- Go to “Menu > Settings > Redis” and be sure that Object Cache is enabled. "
+		echo "${end}"
+	else
+		echo "${red}Redis Object Cache Plugin is already installed!${end}"
+	fi
+}
+
+domain_check() {
+	local din="$1"
+	
+	# Only numerals 0-9, basic Latin letters, both lowercase and uppercase, hyphen.
+	[[ $din =~ ^[\.0-9A-Za-z\-]+$ ]] || domfail="true"
+	
+	# Check Lenght
+	[[ ${#din} -gt 67 ]] && domfail="true"
+	
+	# Can not start or end with a hyphen
+	[[ $(echo "${din}" | cut -c-1) == "-" || $(echo "${din}" | rev | cut -c-1) == "-" ]] && domfail="true"
+	
+	[[ $domfail == "true" ]] && echo "${red}[WARNING] Domain names can only contain letters, numbers or a hyphen; can not start or end with a hyphen and can be up to 67 characters long.${end}"
+}
+
+dbword_check() {
+	local win="$1"
+	local RANDOM_NAME=`pwgen -s -1`
+	
+	# Reserved words - https://mariadb.com/kb/en/library/reserved-words/
+	# https://mariadb.com/kb/en/library/identifier-names/
+	
+	# Trim start/end spaces and quotes
+	win=$(echo ${win//\'})
+	win=$(echo ${win//\"} | xargs)
+	
+	# Check Lenght
+	[[ ( ${#win} -gt 80 && $2 == "user" ) || ( ${#win} -gt 64 && $2 != "user" ) ]] && win="Webinoly_$RANDOM_NAME"
+	
+	# Reserved words
+	shopt -s nocasematch
+	if [[ $win =~ ^(ACCESSIBLE|ADD|ALL|ALTER|ANALYZE|AND|AS|ASC|ASENSITIVE|BEFORE|BETWEEN|BIGINT|BINARY|BLOB|BOTH|BY|CALL|CASCADE|CASE|CHANGE|CHAR|CHARACTER|CHECK|COLLATE|COLUMN|CONDITION|CONSTRAINT|CONTINUE|CONVERT|CREATE|CROSS|CURRENT_DATE|CURRENT_TIME|CURRENT_TIMESTAMP|CURRENT_USER|CURSOR|DATABASE|DATABASES|DAY_HOUR|DAY_MICROSECOND|DAY_MINUTE|DAY_SECOND|DEC|DECIMAL|DECLARE|DEFAULT|DELAYED|DELETE|DESC|DESCRIBE|DETERMINISTIC|DISTINCT|DISTINCTROW|DIV|DOUBLE|DROP|DUAL|EACH|ELSE|ELSEIF|ENCLOSED|ESCAPED|EXISTS|EXIT|EXPLAIN|FALSE|FETCH|FLOAT|FLOAT4|FLOAT8|FOR|FORCE|FOREIGN|FROM|FULLTEXT|GENERAL|GRANT|GROUP|HAVING|HIGH_PRIORITY|HOUR_MICROSECOND|HOUR_MINUTE|HOUR_SECOND|IF|IGNORE|IGNORE_SERVER_IDS|IN|INDEX|INFILE|INNER|INOUT|INSENSITIVE|INSERT|INT|INT1|INT2|INT3|INT4|INT8|INTEGER|INTERVAL|INTO|IS|ITERATE|JOIN|KEY|KEYS|KILL|LEADING|LEAVE|LEFT|LIKE|LIMIT|LINEAR|LINES|LOAD|LOCALTIME|LOCALTIMESTAMP|LOCK|LONG|LONGBLOB|LONGTEXT|LOOP|LOW_PRIORITY|MASTER_HEARTBEAT_PERIOD|MASTER_SSL_VERIFY_SERVER_CERT|MATCH|MAXVALUE|MEDIUMBLOB|MEDIUMINT|MEDIUMTEXT|MIDDLEINT|MINUTE_MICROSECOND|MINUTE_SECOND|MOD|MODIFIES|NATURAL|NOT|NO_WRITE_TO_BINLOG|NULL|NUMERIC|ON|OPTIMIZE|OPTION|OPTIONALLY|OR|ORDER|OUT|OUTER|OUTFILE|PARTITION|PRECISION|PRIMARY|PROCEDURE|PURGE|RANGE|READ|READS|READ_WRITE|REAL|RECURSIVE|REFERENCES|REGEXP|RELEASE|RENAME|REPEAT|REPLACE|REQUIRE|RESIGNAL|RESTRICT|RETURN|REVOKE|RIGHT|RLIKE|ROWS|SCHEMA|SCHEMAS|SECOND_MICROSECOND|SELECT|SENSITIVE|SEPARATOR|SET|SHOW|SIGNAL|SLOW|SMALLINT|SPATIAL|SPECIFIC|SQL|SQLEXCEPTION|SQLSTATE|SQLWARNING|SQL_BIG_RESULT|SQL_CALC_FOUND_ROWS|SQL_SMALL_RESULT|SSL|STARTING|STRAIGHT_JOIN|TABLE|TERMINATED|THEN|TINYBLOB|TINYINT|TINYTEXT|TO|TRAILING|TRIGGER|TRUE|UNDO|UNION|UNIQUE|UNLOCK|UNSIGNED|UPDATE|USAGE|USE|USING|UTC_DATE|UTC_TIME|UTC_TIMESTAMP|VALUES|VARBINARY|VARCHAR|VARCHARACTER|VARYING|WHEN|WHERE|WHILE|WINDOW|WITH|WRITE|XOR|YEAR_MONTH|ZEROFILL)$ ]]; then
+		win="Webinoly_$RANDOM_NAME"
+	fi
+	shopt -u nocasematch
+	
+	# Only numerals 0-9, basic Latin letters, both lowercase and uppercase, dollar sign, underscore.
+	[[ $win =~ ^[0-9A-Za-z\$_]+$ ]] || win="Webinoly_$RANDOM_NAME"
+	
+	# Can not contain only numbers
+	[[ $win =~ ^[0-9]+$ ]] && win="Webinoly_$RANDOM_NAME"
+	
+	# Floating point number confusing
+	[[ ${win:0:1} =~ ^[0-9]+$ && ${win:1:1} == "e" ]] && win="Webinoly_$RANDOM_NAME"
+	
+	echo $win
 }
 
 
 wpinstall() {
+	[[ $domain == "-mysql" ]] && local dom="Webinoly_$(pwgen -s -1)" || local dom=$(echo $domain | sed "s/[^0-9A-Za-z]/_/g")
+	local ROOT_PASS=$( echo $(conf_read mysql-root) | openssl enc -d -a -salt )
+	local AUTOGENPASS_WPDB=`pwgen -s -1`
+	local setupmysql="y"
+	local setupwp="y"
+	local dbhost="localhost"
+	local dbname=$dom
+	local dbuser=$dom
+	local dbpass=$AUTOGENPASS_WPDB
+	local dbpref="wp_"
+	
+	# WP with Custom Data
+	if [[ $wp == [35] ]]; then
+		[[ $setmsqcustom == "false" ]] && setupmysql="n"
+		[[ $setpwpcustom == "false" ]] && setupwp="n"
+		
+		dbhost="$dbhostcustom"
+		dbname="$dbnamecustom"
+		dbuser="$dbusercustom"
+		dbpass="$dbpasscustom"
+		dbpref="$dbprefcustom"
+		dburoot="$exusercustom"
+		dbproot="$expasscustom"
+	fi
+	
+	# Print MySQL default data
+	if [[ $wp == 4 ]]; then
+		echo "${blu}"
+		echo "Host: $dbhost"
+		echo "Database Name: $dbname"
+		echo "Database User: $dbuser"
+		echo "Password: $dbpass"
+		echo "${end}"
+	fi
+	
 	echo "${blu}"
-	echo "Do you need to setup new MySQL database? [Y/n]"
-	while read -r -n 1 -s setupmysql; do
-	  local setupmysql=${setupmysql:-y}
-	  if [[ $setupmysql = [YyNn] ]]; then
-		break
-	  fi
-	done
-	echo "Create WP-Config file automatically? [Y/n]"
-	while read -r -n 1 -s setupwp; do
-	  local setupwp=${setupwp:-y}
-	  if [[ $setupwp = [YyNn] ]]; then
-		break
-	  fi
-	done
+	if [[ $wp == 1 ]]; then
+		echo "Do you need to setup new MySQL database? [Y/n]"
+		while read -r -n 1 -s setupmysql; do
+			  setupmysql=${setupmysql:-y}
+			  [[ $setupmysql = [YyNn] ]] && break
+		done
+		echo "Create WP-Config file automatically? [Y/n]"
+		while read -r -n 1 -s setupwp; do
+			  setupwp=${setupwp:-y}
+			  [[ $setupwp = [YyNn] ]] && break
+		done
+	fi
+	
+	# Just create DB, not install WP
+	[[ $wp == [045] ]] && setupwp="n"
 	
 	# Download WP (latest version)
-	sudo curl -o /var/www/$domain/htdocs/wp.tar.gz https://wordpress.org/latest.tar.gz
-	sudo tar -xf /var/www/$domain/htdocs/wp.tar.gz -C /var/www/$domain/htdocs/
-	sudo mv /var/www/$domain/htdocs/wordpress/* /var/www/$domain/htdocs/
-	sudo rm -rf /var/www/$domain/htdocs/wordpress
-	sudo rm /var/www/$domain/htdocs/wp.tar.gz
+	if [[ $wp == [123] ]]; then
+		sudo wget --timeout=15 -qrO /var/www/$domain/htdocs/wp.tar.gz https://wordpress.org/latest.tar.gz
+		sudo tar -xf /var/www/$domain/htdocs/wp.tar.gz -C /var/www/$domain/htdocs/
+		sudo mv /var/www/$domain/htdocs/wordpress/* /var/www/$domain/htdocs/
+		sudo rm -rf /var/www/$domain/htdocs/wordpress
+		sudo rm /var/www/$domain/htdocs/wp.tar.gz
+	fi
 	
 	# Generate and auto-fill wp-config.php and also create database
-	if [[ "$setupmysql" == y || "$setupmysql" == Y || "$setupwp" == y || "$setupwp" == Y ]] ; then
-		local AUTOGENPASS_WPDB=`pwgen -s -1`
-		local dom=${domain//./_}	
+	if [[ $setupmysql == [yY] || $setupwp == [yY] ]] ; then
 		local done="0"
 		
 		while [[ $done != "1" ]]
@@ -54,136 +160,237 @@ wpinstall() {
 			done="1"
 			# Ask DB data or suggest default values
 			echo ""
-			read -p "Database Host [localhost]:" dbhost
-			local dbhost=${dbhost:-localhost}
+			[[ $wp == [2345] ]] || read -p "Database Host [localhost]:" dbhost
+			dbhost=${dbhost:-localhost}
 			
-			if [[ $dbhost == "localhost" && ( "$setupmysql" == y || "$setupmysql" == Y ) && $(conf_read mysql) != "true" ]]; then
+			if [[ $dbhost == "localhost" && $setupmysql == [yY] && $(conf_read mysql) != "true" ]]; then
 				echo "${red} [ERROR] MySQL is not installed or localhost was not found!${blu}"
 				done="0"
 				continue 1;
 			fi
 			# Check if localhost or external DB
-			if [[ $dbhost != "localhost" && ( "$setupmysql" == y || "$setupmysql" == Y ) ]]; then
+			if [[ $dbhost != "localhost" && $setupmysql == [yY] ]]; then
 				if [[ $(conf_read mysql-client) != "true" ]]; then
-					echo "${gre}MySQL Client is not installed and we need it to conect with your external server."
+					echo "${gre}MySQL Client is not installed and we need it to stablish a connection with your external server."
 					echo "Wait while we install MySQL Client... installing!!!${end}"
 					mysql_client_install > /dev/null 2>&1 &
 					echo "${gre}MySQL Client has been successfully installed!${end}"
 				fi
 				echo "${blu}"
-				read -p "External DB root username [root]: " dburoot
-				read -p "External DB root password: " dbproot
-				echo ""
-				local dburoot=${dburoot:-root}
-				local dbproot=${dbproot:-nodefined}
-					
+				
+				if [[ $wp == 1 || ($wp == [35] && ( -z $dburoot || -z $dbproot )) ]]; then
+					read -p "External DB root username [root]: " dburoot
+					read -p "External DB root password: " dbproot
+					echo ""
+					local dburoot=${dburoot:-root}
+					local dbproot=${dbproot:-nodefined}
+				fi
+				
 				local dburl=$(echo "$dbhost" | cut -f 1 -d ':')
 				local dbport=$(echo "$dbhost" | cut -f 2 -d ':')
 			fi
 			
-			read -p "Database Name [$dom]:" dbname
-			local dbname=${dbname:-$dom}
-				
+			# ************* Ask for DB Name and validate data *************** #
+			dom=$(dbword_check $dom)
+			[[ $wp == [2345] ]] || read -p "Database Name [$dom]:" dbname
+			dbname=${dbname:-$dom}
+			
 			# Check for duplicate database names, if already exists ask for another dbname to create the new db
-			if [[ "$setupmysql" == y || "$setupmysql" == Y ]]; then
+			if [[ "$setupmysql" == [yY] ]]; then
 				local newdbname="$dbname"
-				while [[ $dbname == $newdbname && $dbreuse != y && $dbreuse != Y ]]; do
+				while [[ $dbname == $newdbname && $dbreuse != [yY] ]]; do
 					# Chech connection to DB first
 					if [[ $dbhost == "localhost" ]]; then
-						local ROOT_PASS=$( echo $(conf_read mysql-root) | openssl enc -d -a -salt )
-						sudo mysql --connect_timeout 10 --user=root -p$ROOT_PASS -e "quit"
+						sudo mysql --connect-timeout=10 --user=root -p$ROOT_PASS -e "quit"
+						if [[ $? != "0" ]]; then
+							done="0"
+							# Remove the Unattended feature and ask for values.
+							[[ $wp == [2345] ]] && wp=1
+							echo "${red}============================================"
+							echo "    [Error]: Database conection failed."
+							echo "============================================${blu}"
+							echo ""
+							continue 2;
+						fi
 					else
-						sudo mysql --connect_timeout 10 -h "$dburl" -P "$dbport" -u"$dburoot" -p"$dbproot" -e "quit"
-					fi
-					if [[ $? != "0" ]]; then
-						done="0"
-						echo "${red}============================================"
-						echo "    [Error]: Database conection failed."
-						echo "============================================${blu}"
-						echo ""
-						continue 2;
+						sudo mysql --connect-timeout=10 -h "$dburl" -P "$dbport" -u"$dburoot" -p"$dbproot" -e "quit"
+						if [[ $? != "0" ]]; then
+							done="0"
+							[[ $wp == [2345] ]] && wp=1
+							echo "${red}============================================"
+							echo "    [Error]: Database conection failed."
+							echo "============================================${blu}"
+							echo ""
+							continue 2;
+						fi
 					fi
 					if [[ $dbhost == "localhost" ]]; then
-						local newdbname=$(sudo mysqlshow --user=root -p$ROOT_PASS $dbname | grep -v Wildcard | grep -ow $dbname)
+						# https://stackoverflow.com/questions/7364709/bash-script-check-if-mysql-database-exists-perform-action-based-on-result
+						local newdbname=$(sudo mysqlshow --user=root -p$ROOT_PASS | grep -ow $dbname)
 					else
-						local newdbname=$(sudo mysqlshow -h "$dburl" -P "$dbport" -u"$dburoot" -p"$dbproot" $dbname | grep -v Wildcard | grep -ow $dbname)
+						local newdbname=$(sudo mysqlshow -h "$dburl" -P "$dbport" -u"$dburoot" -p"$dbproot" | grep -ow $dbname)
 					fi
 					
-					if [ "$newdbname" == "$dbname" ]; then
+					if [[ $newdbname == $dbname || $dbname != $(dbword_check $dbname) ]]; then
 						echo ""
-						echo "${red}Database $dbname already exists!${blu}"
-						echo "Do you want to use this DB in your new site? [y/N]"
-						while read -r -n 1 -s dbreuse; do
-						  local dbreuse=${dbreuse:-n}
-						  if [[ $dbreuse = [YyNn] ]]; then
-							break
-						  fi
-						done
+						if [[ $newdbname == $dbname ]]; then
+							echo "${red}Database $dbname already exists!${blu}"
+							echo "Do you want to use this DB in your new site? [y/N]"
+							while read -r -n 1 -s dbreuse; do
+							  local dbreuse=${dbreuse:-n}
+							  [[ $dbreuse == [YyNn] ]] && break
+							done
+						fi
+						if [[ $dbname != $(dbword_check $dbname) ]]; then
+							if [[ $wp == [24] ]]; then
+								newdbname="Webinoly_$(pwgen -s -1)"
+								dbname="$newdbname"
+								continue 1;
+							fi
+							echo "${red}The DB Name can not be a reserved word or should only contain allowed characters!${blu}"
+							dbreuse="n"
+						fi
 						
-						if [[ $dbreuse != y && $dbreuse != Y ]]; then
+						if [[ $dbreuse != [yY] ]]; then
 							echo ""
 							read -p "Please enter a new DB_NAME for your Database: " newdbname
+							[[ -z "$newdbname" ]] && newdbname="$dbname"
 							dbname="$newdbname"
-						elif [[ $dbreuse == y || $dbreuse == Y ]]; then
+						elif [[ $dbreuse == [yY] ]]; then
 							# If you want to use the DB that already exist, abort DB creation.
 							setupmysql="n"
 						fi
 					fi
 				done
 			fi
-			read -p "Database User [$dom]:" dbuser
-			read -p "Database Password [$AUTOGENPASS_WPDB]:" dbpass
-			read -p "Database Prefix [wp_]:" dbpref
-			echo "${end}"
 			
-			# If empty, assign defalut values
-			local dbuser=${dbuser:-$dom}
-			local dbpass=${dbpass:-$AUTOGENPASS_WPDB}
-			local dbpref=${dbpref:-wp_}
-		
+			# ************* Ask for DB User and validate data *************** #
+			[[ $wp == [2345] ]] || read -p "Database User [$dom]:" dbuser
+			dbuser=${dbuser:-$dom}
+			
+			# Check for duplicate database users, if already exists ask for another dbuser to create the new user
+			if [[ "$setupmysql" == [yY] ]]; then
+				local newdbuser="$dbuser"
+				while [[ $dbuser == $newdbuser && $dbureuse != [yY] ]]; do
+					# Chech connection to DB first
+					if [[ $dbhost == "localhost" ]]; then
+						sudo mysql --connect-timeout=10 --user=root -p$ROOT_PASS -e "quit"
+						if [[ $? != "0" ]]; then
+							done="0"
+							echo "${red}============================================"
+							echo "    [Error]: Database conection failed."
+							echo "============================================${blu}"
+							echo ""
+							continue 2;
+						fi
+					else
+						sudo mysql --connect-timeout=10 -h "$dburl" -P "$dbport" -u"$dburoot" -p"$dbproot" -e "quit"
+						if [[ $? != "0" ]]; then
+							done="0"
+							echo "${red}============================================"
+							echo "    [Error]: Database conection failed."
+							echo "============================================${blu}"
+							echo ""
+							continue 2;
+						fi
+					fi
+					if [[ $dbhost == "localhost" ]]; then
+						# https://stackoverflow.com/questions/7364709/bash-script-check-if-mysql-database-exists-perform-action-based-on-result
+						local newdbuser=$(sudo mysql --connect-timeout=10 --user=root -p$ROOT_PASS -e "SELECT User FROM mysql.user;" | grep -ow $dbuser)
+					else
+						local newdbuser=$(sudo mysql --connect-timeout=10 -h "$dburl" -P "$dbport" -u"$dburoot" -p"$dbproot" -e "SELECT User FROM mysql.user;" | grep -ow $dbuser)
+					fi
+					
+					if [[ $newdbuser == $dbuser || $dbuser != $(dbword_check $dbuser user) ]]; then
+						echo ""
+						if [[ $newdbuser == $dbuser ]]; then
+							echo "${red}User $dbuser already exists!${blu}"
+							echo "Do you want to use this DB User for your new site? [y/N]"
+							while read -r -n 1 -s dbureuse; do
+							  local dbureuse=${dbureuse:-n}
+							  [[ $dbureuse == [YyNn] ]] && break
+							done
+						fi
+						if [[ $dbuser != $(dbword_check $dbuser user) ]]; then
+							if [[ $wp == [24] ]]; then
+								newdbuser="Webinoly_$(pwgen -s -1)"
+								dbuser="$newdbuser"
+								continue 1;
+							fi
+							echo "${red}The DB User can not be a reserved word or should only contain allowed characters!${blu}"
+							dbureuse="n"
+						fi
+						
+						if [[ $dbureuse != [yY] ]]; then
+							echo ""
+							read -p "Please enter a new DB_User for your Database: " newdbuser
+							[[ -z "$newdbuser" ]] && newdbuser="$dbuser"
+							dbuser="$newdbuser"
+						elif [[ $dbureuse == [yY] ]]; then
+							# If you want to use the User that already exist, abort DB creation.
+							setupmysql="n"
+						fi
+					fi
+				done
+			fi
+			
+			if [[ $wp != [2345] ]]; then
+				read -p "Database Password [$AUTOGENPASS_WPDB]:" dbpass
+				# Not ask for wp_prefix when wp=0 (mysql only site)
+				[[ $wp == [045] ]] || read -p "Database Prefix [wp_]:" dbpref
+				echo "${end}"
+				
+				# If empty, assign defalut values
+				dbpass=${dbpass:-$AUTOGENPASS_WPDB}
+				dbpref=${dbpref:-wp_}
+			fi
 		
 			# DB Creation
-			if [[ "$setupmysql" == y || "$setupmysql" == Y  ]] ; then
+			if [[ "$setupmysql" == [yY]  ]] ; then
 				if [[ $dbhost == "localhost" ]]; then
 					local dbsetup="CREATE DATABASE $dbname;GRANT ALL PRIVILEGES ON $dbname.* TO $dbuser@$dbhost IDENTIFIED BY '$dbpass';FLUSH PRIVILEGES;"
-					sudo mysql --connect_timeout 10 --user=root -p$ROOT_PASS -e "$dbsetup"
+					sudo mysql --connect-timeout=10 --user=root -p$ROOT_PASS -e "$dbsetup"
+					if [ $? != "0" ]; then
+						done="0"
+						echo "${red}============================================"
+						echo "    [Error]: Database creation failed."
+						echo "============================================${end}"
+						echo ""
+					fi
 				else
-					sudo mysql --connect_timeout 10 -h "$dburl" -P "$dbport" -u"$dburoot" -p"$dbproot" <<_EOF_
+					sudo mysql --connect-timeout=10 -h "$dburl" -P "$dbport" -u"$dburoot" -p"$dbproot" <<_EOF_
 CREATE DATABASE ${dbname};
 grant usage on ${dbname}.* to ${dbuser}@\`%\` identified by '${dbpass}';
 grant all privileges on ${dbname}.* to ${dbuser}@\`%\`;
 FLUSH PRIVILEGES;
 _EOF_
-				fi
 					
-				if [ $? != "0" ]; then
-					done="0"
-					echo "${red}============================================"
-					echo "    [Error]: Database creation failed."
-					echo "============================================${end}"
-					echo ""
+					if [ $? != "0" ]; then
+						done="0"
+						echo "${red}============================================"
+						echo "    [Error]: Database creation failed."
+						echo "============================================${end}"
+						echo ""
+					fi
 				fi
 			fi
 			
 			if [[ $done != "1" ]]; then
 				echo "${red} Some error ocurred during Database Configuration."
-				echo "${blu}  Retry [Y/n]? ${end}"
+				echo "${blu}  Retry [Y/n]?"
 				while read -r -n 1 -s done; do
 				  done=${done:-y}
-				  if [[ $done = [YyNn] ]]; then
-					break
-				  fi
+				  [[ $done = [YyNn] ]] && break
 				done
-				if [[ $done  == n || $done == N ]]; then
-					done="1"
-				fi
+				[[ $done  == [nN] ]] && done="1"
 			fi
 		done
 	fi
+	echo "${end}"
 	
 	
 	#WP-Config.php auto-setup
-	if [[ "$setupwp" == y || "$setupwp" == Y ]] ; then
+	if [[ $setupwp == [yY] ]] ; then
 		# Generate random salt keys
 		local SALT_AUTHK=`pwgen -s -1 64`
 		local SALT_SECUR=`pwgen -s -1 64`
@@ -212,6 +419,10 @@ _EOF_
 		sudo sed -i "/'LOGGED_IN_SALT'/c \define('LOGGED_IN_SALT',  '$SALT_LOGGS');" /var/www/$domain/wp-config.php
 		sudo sed -i "/'NONCE_SALT'/c \define('NONCE_SALT',      '$SALT_NONCS');" /var/www/$domain/wp-config.php
 		
+		# Redis Conf
+		sudo sed -i "/stop editing/i \define('WP_REDIS_SELECTIVE_FLUSH', true);" /var/www/$domain/wp-config.php
+		sudo sed -i "/stop editing/i \define('WP_CACHE_KEY_SALT', 'redis_object_cache_for_wp_$domain');" /var/www/$domain/wp-config.php
+		
 		# Multisite wp-config
 		if [[ "$type" == "-wpsubdir" || "$type" == "-wpsubdom" ]]; then
 			sudo sed -i "/stop editing/i \define('WP_ALLOW_MULTISITE', true);" /var/www/$domain/wp-config.php
@@ -234,20 +445,27 @@ _EOF_
 
 
 deletesite() {
-	# Determine id site is WP, so you should delete the DB too.
+	if [[ -n $value ]]; then
+		dbdata=${value:1:-1}
+		local dbdatahost=$(echo "${dbdata}" | cut -d',' -f 1 -s)
+		[[ $dbdatahost == "external" ]] && dbdatadel=$(echo "${dbdata}" | cut -d',' -f 2 -s)
+		[[ $dbdatadel =~ ^(true|false)$ || $value == "force" ]] && local skip="true"
+	fi
+
+	# Determine if site is WP, so you should delete the DB too.
 	if [[ -a /var/www/$domain/wp-config.php || -a /var/www/$domain/htdocs/wp-config.php ]]; then
-		echo "${blu}Delete Database [Y/n]?${end}"
-		while read -r -n 1 -s dbdel; do
-		  local dbdel=${dbdel:-y}
-		  if [[ $dbdel = [YyNn] ]]; then
-			break
-		  fi
-		done
+		if [[ $skip != "true" ]]; then
+			echo "${blu}Delete Database [Y/n]?${end}"
+			while read -r -n 1 -s dbdel; do
+			  local dbdel=${dbdel:-y}
+			  [[ $dbdel = [YyNn] ]] && break
+			done
+		else
+			[[ $dbdatadel != "false" ]] && dbdel="Y"
+		fi
 	fi
 	
-	if [[ "$dbdel" == "y" || "$dbdel" == "Y" ]]; then
-		db_delete $domain
-	fi
+	[[ $dbdel == [yY] ]] && db_delete $domain
 	
 	# Delete site files
 	sudo rm /etc/nginx/sites-available/$domain
@@ -258,15 +476,13 @@ deletesite() {
 
 
 createsite() {
-	if [[ "$wp" == "1" && $(conf_read php) != "true" ]]; then
+	# Check domain and then prevent reserved characters for file names.
+	domain_check $domain
+	domain=$(echo $domain | sed "s/[^\.0-9A-Za-z\-]/_/g")
+	
+	if [[ $(conf_read php) != "true" && ("$wp" == [123] || "$type" == "-php") ]]; then
 		echo "${red}"
 		echo " [ERROR] PHP must be installed before you can create a WP site!"
-		echo "${end}"
-		exit 1
-	fi
-	if [[ "$type" == "-php" && $(conf_read php) != "true" ]]; then
-		echo "${red}"
-		echo " [ERROR] PHP must be installed before you can create a PHP site!"
 		echo "${end}"
 		exit 1
 	fi
@@ -278,6 +494,9 @@ createsite() {
 	fi
 	
 	sudo cp /opt/webinoly/templates/template-site-php /etc/nginx/sites-available/$domain
+	
+	# Remove www support for subdomains - only main domain will support both www and non-www.
+	[[ $subdomflag == 1 ]] && sudo sed -i "s/ www.domain.com;/;/g"  /etc/nginx/sites-available/$domain
 
 	# Nginx conf file for the new site (-php conf is default)
 	sudo sed -i "s/domain.com/$domain/g"  /etc/nginx/sites-available/$domain
@@ -287,42 +506,35 @@ createsite() {
 	sudo ln -s /etc/nginx/sites-available/$domain /etc/nginx/sites-enabled/$domain
 	
 	# Create data folder for new site
-	if [[ ! -d /var/www/$domain/htdocs || ! -d /var/www/$domain ]]; then
-		sudo mkdir -p /var/www/$domain/htdocs
-		if [[ "$wp" == "1" ]]; then
-			wpinstall
-		fi
-	else
-		echo "${blu}"
-		echo "  We found a folder with $domain site data, do you want to use it [Y/n]? "
-		while read -r -n 1 -s wwwexist; do
-		  wwwexist=${wwwexist:-y}
-		  if [[ $wwwexist = [YyNn] ]]; then
-			break
-		  fi
-		done
-		echo ""
-		
-		if [[ $wwwexist == n || $wwwexist == N ]]; then
-			sudo rm -rf /var/www/$domain/htdocs
+	if [[ $type != "-proxy" && $type != "-parked" ]]; then
+		if [[ ! -d /var/www/$domain/htdocs || ! -d /var/www/$domain ]]; then
 			sudo mkdir -p /var/www/$domain/htdocs
-			if [[ "$wp" == "1" ]]; then
-				wpinstall
+			[[ "$wp" == [123] ]] && wpinstall
+		else
+			echo "${blu}"
+			echo "  We found a folder with $domain site data, do you want to use it [Y/n]? "
+			while read -r -n 1 -s wwwexist; do
+			  wwwexist=${wwwexist:-y}
+			  [[ $wwwexist == [YyNn] ]] && break
+			done
+			echo ""
+			
+			if [[ $wwwexist == [nN] ]]; then
+				sudo rm -rf /var/www/$domain/htdocs
+				sudo mkdir -p /var/www/$domain/htdocs
+				[[ "$wp" == [123] ]] && wpinstall
 			fi
 		fi
 	fi
-
+	
 	sudo chown -R www-data:www-data /var/www
-	if [[ $(conf_read login-www-data) == "true" ]]; then
-		sudo chown root:root /var/www
-	fi
+	[[ $(conf_read login-www-data) == "true" ]] && sudo chown root:root /var/www
 	
 	# Activate FastCgi cache
-	if [[ "$cache" == "-cache" && "$wp" == "1" ]]; then
+	if [[ "$cache" == "-cache" && "$wp" == [123] ]]; then
 		sudo sed -i '/php.conf/c \	include common/wpfc.conf;' /etc/nginx/sites-available/$domain
-		nginx_helper_plugin
+		wp_cache_plugins
 	fi
 	
 	echo "${gre}Site $domain has been successfully created!${end}"
 }
-
